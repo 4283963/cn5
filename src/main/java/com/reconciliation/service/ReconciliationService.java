@@ -37,6 +37,9 @@ public class ReconciliationService {
     private final ReconciliationDifferenceMapper differenceMapper;
     private final ExchangeRateMapper exchangeRateMapper;
 
+    private static final int INTERMEDIATE_SCALE = 6;
+    private static final int FINAL_SCALE = 2;
+
     @Value("${reconciliation.amount-tolerance:0.01}")
     private BigDecimal amountTolerance;
 
@@ -134,9 +137,9 @@ public class ReconciliationService {
             diff.setOrderCurrency(order.getCurrency());
             diff.setPaymentAmount(payment.getAmount());
             diff.setPaymentCurrency(payment.getCurrency());
-            diff.setOrderAmountInBase(orderAmountInBase);
-            diff.setPaymentAmountInBase(paymentAmountInBase);
-            diff.setAmountDifference(amountDiff);
+            diff.setOrderAmountInBase(orderAmountInBase.setScale(FINAL_SCALE, RoundingMode.HALF_UP));
+            diff.setPaymentAmountInBase(paymentAmountInBase.setScale(FINAL_SCALE, RoundingMode.HALF_UP));
+            diff.setAmountDifference(amountDiff.setScale(FINAL_SCALE, RoundingMode.HALF_UP));
 
             BigDecimal rate = getExchangeRate(order.getCurrency(), baseCurrency, rateDate);
             diff.setExchangeRateUsed(rate);
@@ -144,7 +147,7 @@ public class ReconciliationService {
             diff.setRemark(String.format("金额不一致: 订单 %s %s, 支付 %s %s, 基币差额 %s",
                     order.getAmount(), order.getCurrency(),
                     payment.getAmount(), payment.getCurrency(),
-                    amountDiff));
+                    amountDiff.setScale(FINAL_SCALE, RoundingMode.HALF_UP)));
             diffs.add(diff);
         }
 
@@ -175,7 +178,7 @@ public class ReconciliationService {
             log.warn("No exchange rate found for {}/{} on {}, using 1.0", currency, baseCurrency, rateDate);
             return amount;
         }
-        return amount.multiply(rate).setScale(2, RoundingMode.HALF_UP);
+        return amount.multiply(rate).setScale(INTERMEDIATE_SCALE, RoundingMode.HALF_UP);
     }
 
     private BigDecimal getExchangeRate(String sourceCurrency, String targetCurrency, LocalDate rateDate) {
@@ -203,9 +206,9 @@ public class ReconciliationService {
         task.setTotalCount(totalCount);
         task.setMatchCount(matchCount);
         task.setDifferenceCount(diffCount);
-        task.setTotalOrderAmount(totalOrderAmount);
-        task.setTotalPaymentAmount(totalPaymentAmount);
-        task.setTotalDifference(totalOrderAmount.subtract(totalPaymentAmount).abs());
+        task.setTotalOrderAmount(totalOrderAmount.setScale(FINAL_SCALE, RoundingMode.HALF_UP));
+        task.setTotalPaymentAmount(totalPaymentAmount.setScale(FINAL_SCALE, RoundingMode.HALF_UP));
+        task.setTotalDifference(totalOrderAmount.subtract(totalPaymentAmount).abs().setScale(FINAL_SCALE, RoundingMode.HALF_UP));
         task.setCompletedAt(LocalDateTime.now());
         taskMapper.updateById(task);
     }
