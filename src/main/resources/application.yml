@@ -1,0 +1,40 @@
+server:
+  port: 8080
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/reconciliation_db
+    username: postgres
+    password: postgres
+    driver-class-name: org.postgresql.Driver
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: UTC
+    serialization:
+      write-dates-as-timestamps: false
+
+mybatis-plus:
+  mapper-locations: classpath:/mapper/**/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+external:
+  order-service:
+    base-url: http://localhost:8081/api/orders
+    connect-timeout: 5000
+    read-timeout: 30000
+  payment-gateway:
+    base-url: http://localhost:8082/api/payments
+    connect-timeout: 5000
+    read-timeout: 30000
+
+reconciliation:
+  amount-tolerance: 0.01
+  base-currency: CNY
