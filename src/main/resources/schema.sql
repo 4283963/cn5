@@ -45,12 +45,18 @@ CREATE TABLE IF NOT EXISTS reconciliation_difference (
     payment_quantity        INTEGER,
     quantity_difference     INTEGER,
     remark                  TEXT,
+    auto_fix_status         VARCHAR(30),
+    auto_fixed_at           TIMESTAMP,
+    auto_fix_remark         TEXT,
     created_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     deleted                 INTEGER DEFAULT 0
 );
 
 COMMENT ON TABLE reconciliation_difference IS '对账差异明细表';
-COMMENT ON COLUMN reconciliation_difference.difference_type IS '差异类型: AMOUNT_MISMATCH/QUANTITY_MISMATCH/ORDER_ONLY/PAYMENT_ONLY/EXCHANGE_RATE_MISMATCH';
+COMMENT ON COLUMN reconciliation_difference.difference_type IS '差异类型: AMOUNT_MISMATCH/QUANTITY_MISMATCH/ORDER_ONLY/PAYMENT_ONLY/EXCHANGE_RATE_MISMATCH/PAYMENT_SUCCESS_BUT_ORDER_UNPAID';
+COMMENT ON COLUMN reconciliation_difference.auto_fix_status IS '自动补账状态: PENDING/NOT_APPLICABLE/AUTO_FIXED/AUTO_FIX_FAILED/MANUAL_FIX_REQUIRED';
+COMMENT ON COLUMN reconciliation_difference.auto_fixed_at IS '自动补账时间';
+COMMENT ON COLUMN reconciliation_difference.auto_fix_remark IS '自动补账备注';
 COMMENT ON COLUMN reconciliation_difference.order_amount_in_base IS '订单金额折基币';
 COMMENT ON COLUMN reconciliation_difference.payment_amount_in_base IS '支付金额折基币';
 COMMENT ON COLUMN reconciliation_difference.amount_difference IS '金额差异';
@@ -75,4 +81,5 @@ CREATE INDEX idx_reconciliation_task_dates ON reconciliation_task (start_date, e
 CREATE INDEX idx_reconciliation_task_status ON reconciliation_task (status);
 CREATE INDEX idx_reconciliation_difference_task ON reconciliation_difference (task_id);
 CREATE INDEX idx_reconciliation_difference_type ON reconciliation_difference (difference_type);
+CREATE INDEX idx_reconciliation_difference_auto_fix ON reconciliation_difference (auto_fix_status);
 CREATE INDEX idx_exchange_rate_lookup ON exchange_rate (source_currency, target_currency, rate_date);

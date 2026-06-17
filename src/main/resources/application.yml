@@ -38,3 +38,11 @@ external:
 reconciliation:
   amount-tolerance: 0.01
   base-currency: CNY
+  auto-fix:
+    enabled: true
+    unpaid-status: UNPAID
+    paid-status: PAID
+    success-payment-status: SUCCESS
+    skip-statuses:
+      - REFUNDED
+      - CANCELLED

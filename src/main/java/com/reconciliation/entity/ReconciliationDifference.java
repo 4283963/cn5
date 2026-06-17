@@ -46,6 +46,13 @@ public class ReconciliationDifference {
 
     private String remark;
 
+    @TableField("auto_fix_status")
+    private AutoFixStatus autoFixStatus;
+
+    private LocalDateTime autoFixedAt;
+
+    private String autoFixRemark;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 
@@ -57,6 +64,15 @@ public class ReconciliationDifference {
         QUANTITY_MISMATCH,
         ORDER_ONLY,
         PAYMENT_ONLY,
-        EXCHANGE_RATE_MISMATCH
+        EXCHANGE_RATE_MISMATCH,
+        PAYMENT_SUCCESS_BUT_ORDER_UNPAID
+    }
+
+    public enum AutoFixStatus {
+        PENDING,
+        NOT_APPLICABLE,
+        AUTO_FIXED,
+        AUTO_FIX_FAILED,
+        MANUAL_FIX_REQUIRED
     }
 }

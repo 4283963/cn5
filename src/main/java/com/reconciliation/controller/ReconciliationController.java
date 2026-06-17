@@ -3,7 +3,9 @@ package com.reconciliation.controller;
 import com.reconciliation.dto.ApiResponse;
 import com.reconciliation.dto.ReconciliationRequest;
 import com.reconciliation.dto.ReconciliationResultDTO;
+import com.reconciliation.entity.ReconciliationDifference;
 import com.reconciliation.entity.ReconciliationTask;
+import com.reconciliation.service.AutoFixService;
 import com.reconciliation.service.ReconciliationService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -11,6 +13,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/reconciliation")
@@ -18,6 +21,7 @@ import java.util.List;
 public class ReconciliationController {
 
     private final ReconciliationService reconciliationService;
+    private final AutoFixService autoFixService;
 
     @PostMapping("/trigger")
     public ApiResponse<ReconciliationResultDTO> triggerReconciliation(
@@ -42,5 +46,31 @@ public class ReconciliationController {
             @RequestParam(required = false) LocalDate endDate) {
         List<ReconciliationTask> tasks = reconciliationService.listTasks(startDate, endDate);
         return ApiResponse.ok(tasks);
+    }
+
+    @PostMapping("/auto-fix/task/{taskId}")
+    public ApiResponse<Map<String, Object>> autoFixTask(@PathVariable Long taskId) {
+        int fixedCount = autoFixService.autoFixTask(taskId);
+        return ApiResponse.ok(Map.of(
+                "taskId", taskId,
+                "fixedCount", fixedCount,
+                "message", String.format("成功自动补账 %d 笔", fixedCount)
+        ));
+    }
+
+    @PostMapping("/auto-fix/difference/{differenceId}")
+    public ApiResponse<Map<String, Object>> autoFixDifference(@PathVariable Long differenceId) {
+        boolean success = autoFixService.autoFixSingleDifference(differenceId);
+        return ApiResponse.ok(Map.of(
+                "differenceId", differenceId,
+                "success", success,
+                "message", success ? "自动补账成功" : "自动补账失败"
+        ));
+    }
+
+    @GetMapping("/auto-fix/pending/{taskId}")
+    public ApiResponse<List<ReconciliationDifference>> getPendingAutoFix(@PathVariable Long taskId) {
+        List<ReconciliationDifference> pending = autoFixService.getPendingAutoFixDifferences(taskId);
+        return ApiResponse.ok(pending);
     }
 }

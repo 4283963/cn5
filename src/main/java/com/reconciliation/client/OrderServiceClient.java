@@ -1,12 +1,14 @@
 package com.reconciliation.client;
 
 import com.reconciliation.dto.OrderDTO;
+import com.reconciliation.dto.OrderStatusUpdateRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
@@ -54,6 +56,33 @@ public class OrderServiceClient {
         } catch (Exception e) {
             log.error("Failed to fetch orders from order service", e);
             throw new RuntimeException("订单服务调用失败: " + e.getMessage(), e);
+        }
+    }
+
+    public boolean updateOrderStatus(OrderStatusUpdateRequest request) {
+        String url = baseUrl + "/update-status";
+        log.info("Updating order status for {}: {}", request.getOrderNo(), request.getStatus());
+
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            ResponseEntity<ApiResponse<Void>> response = restTemplate.exchange(
+                    url,
+                    HttpMethod.POST,
+                    new HttpEntity<>(request, headers),
+                    new ParameterizedTypeReference<>() {}
+            );
+
+            if (response.getBody() != null && response.getBody().code() == 200) {
+                log.info("Order {} status updated successfully", request.getOrderNo());
+                return true;
+            }
+            log.warn("Order service update returned non-200 for {}: {}", request.getOrderNo(), response.getBody());
+            return false;
+        } catch (Exception e) {
+            log.error("Failed to update order status for {}", request.getOrderNo(), e);
+            throw new RuntimeException("订单状态更新失败: " + e.getMessage(), e);
         }
     }
 

@@ -8,7 +8,6 @@ import com.reconciliation.dto.PaymentDTO;
 import com.reconciliation.dto.ReconciliationResultDTO;
 import com.reconciliation.entity.ReconciliationDifference;
 import com.reconciliation.entity.ReconciliationTask;
-import com.reconciliation.mapper.ExchangeRateMapper;
 import com.reconciliation.mapper.ReconciliationDifferenceMapper;
 import com.reconciliation.mapper.ReconciliationTaskMapper;
 import lombok.RequiredArgsConstructor;
@@ -35,9 +34,9 @@ public class ReconciliationService {
     private final PaymentGatewayClient paymentGatewayClient;
     private final ReconciliationTaskMapper taskMapper;
     private final ReconciliationDifferenceMapper differenceMapper;
-    private final ExchangeRateMapper exchangeRateMapper;
+    private final ExchangeRateService exchangeRateService;
+    private final AutoFixService autoFixService;
 
-    private static final int INTERMEDIATE_SCALE = 6;
     private static final int FINAL_SCALE = 2;
 
     @Value("${reconciliation.amount-tolerance:0.01}")
@@ -45,6 +44,9 @@ public class ReconciliationService {
 
     @Value("${reconciliation.base-currency:CNY}")
     private String baseCurrency;
+
+    @Value("${reconciliation.auto-fix.enabled:true}")
+    private boolean autoFixEnabled;
 
     @Transactional
     public ReconciliationResultDTO reconcile(LocalDate startDate, LocalDate endDate) {
@@ -102,14 +104,32 @@ public class ReconciliationService {
                 }
             }
 
+            List<ReconciliationDifference> autoFixCandidates = autoFixService.detectAndMarkAutoFixCandidates(
+                    task.getId(), orders, payments, startDate);
+            differences.addAll(autoFixCandidates);
+
             for (ReconciliationDifference diff : differences) {
+                if (diff.getAutoFixStatus() == null) {
+                    diff.setAutoFixStatus(ReconciliationDifference.AutoFixStatus.NOT_APPLICABLE);
+                }
                 differenceMapper.insert(diff);
             }
 
-            updateTaskCompletion(task, orders.size(), matchCount, differences.size(),
+            int autoFixedCount = 0;
+            if (autoFixEnabled && !autoFixCandidates.isEmpty()) {
+                log.info("Auto-fix enabled, attempting to fix {} candidates for task {}", autoFixCandidates.size(), task.getId());
+                autoFixedCount = autoFixService.autoFixTask(task.getId());
+                log.info("Auto-fix completed for task {}, fixed {} orders", task.getId(), autoFixedCount);
+            }
+
+            List<ReconciliationDifference> allDiffs = differenceMapper.selectList(
+                    new LambdaQueryWrapper<ReconciliationDifference>()
+                            .eq(ReconciliationDifference::getTaskId, task.getId()));
+
+            updateTaskCompletion(task, orders.size(), matchCount, allDiffs.size(),
                     totalOrderAmount, totalPaymentAmount);
 
-            return buildResult(task, differences);
+            return buildResult(task, allDiffs);
 
         } catch (Exception e) {
             log.error("Reconciliation failed", e);
@@ -148,6 +168,7 @@ public class ReconciliationService {
                     order.getAmount(), order.getCurrency(),
                     payment.getAmount(), payment.getCurrency(),
                     amountDiff.setScale(FINAL_SCALE, RoundingMode.HALF_UP)));
+            diff.setAutoFixStatus(ReconciliationDifference.AutoFixStatus.NOT_APPLICABLE);
             diffs.add(diff);
         }
 
@@ -163,6 +184,7 @@ public class ReconciliationService {
             diff.setQuantityDifference(Math.abs(order.getQuantity() - payment.getQuantity()));
             diff.setRemark(String.format("库存扣减不一致: 订单数量 %d, 支付数量 %d",
                     order.getQuantity(), payment.getQuantity()));
+            diff.setAutoFixStatus(ReconciliationDifference.AutoFixStatus.NOT_APPLICABLE);
             diffs.add(diff);
         }
 
@@ -170,19 +192,11 @@ public class ReconciliationService {
     }
 
     private BigDecimal convertToBaseCurrency(BigDecimal amount, String currency, LocalDate rateDate) {
-        if (currency.equals(baseCurrency)) {
-            return amount;
-        }
-        BigDecimal rate = getExchangeRate(currency, baseCurrency, rateDate);
-        if (rate == null) {
-            log.warn("No exchange rate found for {}/{} on {}, using 1.0", currency, baseCurrency, rateDate);
-            return amount;
-        }
-        return amount.multiply(rate).setScale(INTERMEDIATE_SCALE, RoundingMode.HALF_UP);
+        return exchangeRateService.convertToBaseCurrency(amount, currency, rateDate);
     }
 
     private BigDecimal getExchangeRate(String sourceCurrency, String targetCurrency, LocalDate rateDate) {
-        return exchangeRateMapper.findRate(sourceCurrency, targetCurrency, rateDate);
+        return exchangeRateService.getRate(sourceCurrency, targetCurrency, rateDate);
     }
 
     private ReconciliationTask createTask(LocalDate startDate, LocalDate endDate) {
@@ -223,6 +237,7 @@ public class ReconciliationService {
         diff.setOrderCurrency(order.getCurrency());
         diff.setOrderQuantity(order.getQuantity());
         diff.setRemark(remark);
+        diff.setAutoFixStatus(ReconciliationDifference.AutoFixStatus.NOT_APPLICABLE);
         return diff;
     }
 
@@ -236,6 +251,7 @@ public class ReconciliationService {
         diff.setPaymentCurrency(payment.getCurrency());
         diff.setPaymentQuantity(payment.getQuantity());
         diff.setRemark(remark);
+        diff.setAutoFixStatus(ReconciliationDifference.AutoFixStatus.NOT_APPLICABLE);
         return diff;
     }
 
@@ -265,10 +281,39 @@ public class ReconciliationService {
             dto.setExchangeRateUsed(d.getExchangeRateUsed());
             dto.setQuantityDifference(d.getQuantityDifference());
             dto.setRemark(d.getRemark());
+            dto.setAutoFixStatus(d.getAutoFixStatus() != null ? d.getAutoFixStatus().name() : null);
+            dto.setAutoFixedAt(d.getAutoFixedAt());
+            dto.setAutoFixRemark(d.getAutoFixRemark());
             return dto;
         }).collect(Collectors.toList());
 
         result.setDifferences(diffDTOs);
+
+        ReconciliationResultDTO.AutoFixSummary autoFixSummary = new ReconciliationResultDTO.AutoFixSummary();
+        int candidateCount = 0;
+        int autoFixedCount = 0;
+        int failedCount = 0;
+        int pendingCount = 0;
+
+        for (ReconciliationDifference d : diffs) {
+            if (d.getDifferenceType() == ReconciliationDifference.DifferenceType.PAYMENT_SUCCESS_BUT_ORDER_UNPAID) {
+                candidateCount++;
+                if (d.getAutoFixStatus() == ReconciliationDifference.AutoFixStatus.AUTO_FIXED) {
+                    autoFixedCount++;
+                } else if (d.getAutoFixStatus() == ReconciliationDifference.AutoFixStatus.AUTO_FIX_FAILED) {
+                    failedCount++;
+                } else if (d.getAutoFixStatus() == ReconciliationDifference.AutoFixStatus.PENDING) {
+                    pendingCount++;
+                }
+            }
+        }
+
+        autoFixSummary.setCandidateCount(candidateCount);
+        autoFixSummary.setAutoFixedCount(autoFixedCount);
+        autoFixSummary.setFailedCount(failedCount);
+        autoFixSummary.setPendingCount(pendingCount);
+        result.setAutoFix(autoFixSummary);
+
         return result;
     }
 

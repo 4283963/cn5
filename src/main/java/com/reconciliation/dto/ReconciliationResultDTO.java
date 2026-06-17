@@ -31,6 +31,8 @@ public class ReconciliationResultDTO {
 
     private List<ReconciliationDifference> differences;
 
+    private AutoFixSummary autoFix;
+
     @Data
     public static class ReconciliationDifference {
         private String orderNo;
@@ -44,5 +46,16 @@ public class ReconciliationResultDTO {
         private BigDecimal exchangeRateUsed;
         private Integer quantityDifference;
         private String remark;
+        private String autoFixStatus;
+        private LocalDateTime autoFixedAt;
+        private String autoFixRemark;
+    }
+
+    @Data
+    public static class AutoFixSummary {
+        private Integer candidateCount;
+        private Integer autoFixedCount;
+        private Integer failedCount;
+        private Integer pendingCount;
     }
 }
